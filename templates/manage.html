@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Manage Wajah{% endblock %}
+{% block content %}
+<h1>Manage Wajah</h1>
+
+<h2>Daftar Wajah</h2>
+<ul>
+  {% for person in persons %}
+  <li style="margin-bottom:10px; display:flex; align-items:center;">
+    <span style="flex-grow:1;">{{ person }}</span>
+    <form method="POST" action="/delete_person" style="margin-left:10px;">
+      <input type="hidden" name="name" value="{{ person }}">
+      <button type="submit">Delete Folder</button>
+    </form>
+  </li>
+  {% endfor %}
+</ul>
+
+
+<hr>
+<h2>Tambah Wajah Baru</h2>
+<form method="POST" action="/add_face" enctype="multipart/form-data">
+  <input type="text" name="name" placeholder="Nama" required>
+  <input type="file" name="file" accept="image/*" required>
+  <button type="submit">Upload</button>
+</form>
+
+<hr>
+<h2>Tambah Wajah dengan Kamera</h2>
+<input type="text" id="newName" placeholder="Nama">
+<button id="startCamAdd">Mulai Kamera</button>
+<button id="captureFace">Rekam Dataset (100 Foto)</button>
+<video id="camPreview" width="320" height="240" autoplay style="display:none; border:1px solid #000;"></video>
+<div id="progress"></div>
+{% endblock %}
+
+{% block script %}
+<script>
+let addCapStream;
+let isCapturing = false;
+
+document.getElementById('startCamAdd').addEventListener('click', async () => {
+    const video = document.getElementById('camPreview');
+    addCapStream = await navigator.mediaDevices.getUserMedia({ video: true });
+    video.srcObject = addCapStream;
+    video.style.display = 'block';
+});
+
+document.getElementById('captureFace').addEventListener('click', async () => {
+    const video = document.getElementById('camPreview');
+    const name = document.getElementById('newName').value.trim();
+    const progress = document.getElementById('progress');
+
+    if(!name) return showToast('Masukkan nama terlebih dahulu', false);
+    if(isCapturing) return;
+
+    isCapturing = true;
+    progress.innerHTML = "Mulai merekam 100 foto...";
+
+    for(let i=1; i<=100; i++){
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const dataURL = canvas.toDataURL('image/jpeg');
+
+        await fetch('/add_face_cam', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ name: name, image: dataURL })
+        });
+
+        progress.innerHTML = `Menyimpan foto ${i}/100 ...`;
+        await new Promise(r => setTimeout(r, 200)); // delay 200ms biar kamera stabil
+    }
+
+    showToast('Dataset 100 foto berhasil disimpan!', true);
+    progress.innerHTML = "";
+    isCapturing = false;
+
+    // matikan kamera
+    video.style.display = 'none';
+    addCapStream.getTracks().forEach(track => track.stop());
+    window.location.reload();
+});
+</script>
+{% endblock %}

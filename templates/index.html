@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Presensi Wajah{% endblock %}
+
+{% block content %}
+<h1>Presensi Wajah</h1>
+
+<div class="mb-3">
+  <label for="course">Pilih Mata Kuliah</label>
+  <select id="course">
+    <option value="Bahasa Mandarin">Bahasa Mandarin</option>
+    <option value="Sistem Multimedia">Sistem Multimedia</option>
+  </select>
+</div>
+
+<div class="mb-3">
+  <button id="startCam">Mulai Presensi</button>
+  <button id="stopCam">Stop Presensi</button>
+</div>
+
+<div>
+  <img id="videoFeed" width="640" height="480" style="display:none;">
+</div>
+
+<div class="mt-3">
+  <button id="rekam-btn">Rekam Presensi</button>
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+let video = document.getElementById('videoFeed');
+
+document.getElementById('startCam').addEventListener('click', () => {
+    video.src = '/video_feed';
+    video.style.display = 'block';
+});
+
+document.getElementById('stopCam').addEventListener('click', () => {
+    fetch('/stop_feed');
+    video.src = '';
+    video.style.display = 'none';
+});
+
+document.getElementById("rekam-btn").addEventListener("click", function() {
+    let course = document.getElementById("course").value;
+
+    fetch("/rekam_presensi", { 
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ course: course })
+    })
+    .then(resp => resp.json())
+    .then(data => {
+        if (data.success) {
+            showToast(data.messages.join("<br>"), true);
+        } else {
+            showToast(data.messages.join("<br>"), false);
+        }
+    });
+});
+</script>
+{% endblock %}

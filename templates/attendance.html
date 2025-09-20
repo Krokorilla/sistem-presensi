@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Daftar Kehadiran{% endblock %}
+{% block content %}
+<h1>Daftar Kehadiran</h1>
+
+<form method="POST" action="/attendance">
+  <label for="course">Mata Kuliah:</label>
+  <select name="course" id="course">
+    <option value="">-- Semua Mata Kuliah --</option>
+    {% for c in courses %}
+    <option value="{{ c }}" {% if c == selected_course %}selected{% endif %}>{{ c }}</option>
+    {% endfor %}
+  </select>
+
+  <label for="date">Tanggal:</label>
+  <select name="date" id="date">
+    <option value="">-- Semua Tanggal --</option>
+    {% for d in dates %}
+    <option value="{{ d }}" {% if d == selected_date %}selected{% endif %}>{{ d }}</option>
+    {% endfor %}
+  </select>
+
+  <button type="submit">Filter</button>
+</form>
+
+{% if records %}
+<table border="1" cellpadding="5" cellspacing="0">
+  <tr>
+    <th>Nama</th>
+    <th>Mata Kuliah</th>
+    <th>Tanggal & Waktu</th>
+  </tr>
+  {% for r in records %}
+  <tr>
+    <td>{{ r[0] }}</td>
+    <td>{{ r[1] }}</td>
+    <td>{{ r[2] }}</td>
+  </tr>
+  {% endfor %}
+</table>
+
+{% if selected_course and selected_date %}
+<a href="/download/{{ selected_course }}/{{ selected_date }}">
+  <button>Download CSV</button>
+</a>
+{% endif %}
+{% else %}
+<p>Tidak ada data presensi.</p>
+{% endif %}
+{% endblock %}

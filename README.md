@@ -6,3 +6,4 @@ venv\Scripts\activate
 
 pip install flask opencv-python deepface numpy pillow flask-socketio
 
+

@@ -64,7 +64,7 @@ document.getElementById('captureFace').addEventListener('click', async () => {
         });
 
         progress.innerHTML = `Menyimpan foto ${i}/100 ...`;
-        await new Promise(r => setTimeout(r, 200)); // delay 200ms biar kamera stabil
+        await new Promise(r => setTimeout(r, 100)); // delay 100ms biar kamera stabil
     }
 
     showToast('Dataset 100 foto berhasil disimpan!', true);

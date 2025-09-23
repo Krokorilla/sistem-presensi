@@ -1,5 +1,5 @@
 from flask import Flask, render_template, Response, request, jsonify, redirect, url_for, send_file, flash
-import cv2, os, threading, time, sqlite3
+import cv2, os, threading, time, sqlite3, pickle
 from queue import Queue
 from datetime import datetime
 from deepface import DeepFace
@@ -8,8 +8,10 @@ import base64, re
 from PIL import Image
 from io import BytesIO
 from sklearn.metrics.pairwise import cosine_similarity
+import shutil
 
 app = Flask(__name__)
+app.secret_key = "supersecret123"  # ganti dengan string random lebih aman
 
 # ------------------ FOLDER & DB ------------------
 FACE_DIR = "faces"
@@ -17,6 +19,8 @@ os.makedirs(FACE_DIR, exist_ok=True)
 
 DB_PATH = "db/attendance.db"
 os.makedirs("db", exist_ok=True)
+
+EMB_FILE = "face_embeddings.pkl"
 
 # DB init
 conn = sqlite3.connect(DB_PATH)
@@ -36,18 +40,38 @@ camera_active = False
 frame_queue = Queue(maxsize=1)
 last_face_names = []  # simpan wajah terakhir untuk tombol presensi
 
-# ------------------ PRECOMPUTE EMBEDDINGS ------------------
+# ------------------ EMBEDDINGS ------------------
+def save_embeddings():
+    """Simpan embeddings ke file pickle"""
+    with open(EMB_FILE, "wb") as f:
+        pickle.dump(face_embeddings, f)
+
 def load_face_embeddings():
-    embeddings_db = {}
-    for f in os.listdir(FACE_DIR):
-        if f.endswith(('.jpg','.png','.jpeg')):
-            path = os.path.join(FACE_DIR, f)
-            try:
-                emb = DeepFace.represent(img_path=path, model_name='Facenet', enforce_detection=False)
-                embeddings_db[f.split('.')[0]] = np.array(emb[0]['embedding'])
-            except Exception as e:
-                print("Error embedding:", f, e)
-    return embeddings_db
+    """Load embeddings dari pickle kalau ada, kalau tidak generate dari folder"""
+    if os.path.exists(EMB_FILE):
+        with open(EMB_FILE, "rb") as f:
+            print("[INFO] Embeddings loaded dari pickle")
+            return pickle.load(f)
+    else:
+        embeddings_db = {}
+        for person in os.listdir(FACE_DIR):
+            person_path = os.path.join(FACE_DIR, person)
+            if os.path.isdir(person_path):
+                embeddings_db[person] = []
+                for f in os.listdir(person_path):
+                    if f.lower().endswith(('.jpg', '.png', '.jpeg')):
+                        path = os.path.join(person_path, f)
+                        try:
+                            emb = DeepFace.represent(
+                                img_path=path, model_name='Facenet', enforce_detection=False
+                            )[0]['embedding']
+                            embeddings_db[person].append(np.array(emb))
+                        except Exception as e:
+                            print("Error embedding:", f, e)
+        with open(EMB_FILE, "wb") as f:
+            pickle.dump(embeddings_db, f)
+        print("[INFO] Embeddings baru digenerate & disimpan ke pickle")
+        return embeddings_db
 
 face_embeddings = load_face_embeddings()
 
@@ -90,11 +114,13 @@ def gen_frames():
 
                         best_match = "Unknown"
                         best_score = -1
-                        for name, ref_emb in face_embeddings.items():
-                            score = cosine_similarity([emb], [ref_emb])[0][0]
-                            if score > best_score:
-                                best_score = score
-                                best_match = name
+                        # bandingkan dengan semua embedding
+                        for name, emb_list in face_embeddings.items():
+                            for ref_emb in emb_list:
+                                score = cosine_similarity([emb], [ref_emb])[0][0]
+                                if score > best_score:
+                                    best_score = score
+                                    best_match = name
                         if best_score < 0.75:
                             best_match = "Unknown"
 
@@ -157,14 +183,12 @@ def attendance():
     selected_date = request.form.get("date")
 
     if selected_course and selected_date:
-        # Kalau ada filter
         c.execute("""SELECT name, course, datetime 
                      FROM attendance 
                      WHERE course=? AND DATE(datetime)=? 
                      ORDER BY datetime DESC""", 
                   (selected_course, selected_date))
     else:
-        # Default tampilkan semua data
         c.execute("""SELECT name, course, datetime 
                      FROM attendance 
                      ORDER BY datetime DESC""")
@@ -177,7 +201,6 @@ def attendance():
                            selected_course=selected_course,
                            selected_date=selected_date,
                            records=records)
-
 
 @app.route('/download/<course>/<date>')
 def download_csv_date(course, date):
@@ -243,33 +266,21 @@ def manage():
         persons = [d for d in os.listdir(FACE_DIR) if os.path.isdir(os.path.join(FACE_DIR, d))]
     return render_template("manage.html", persons=persons)
 
-
-@app.route('/add_face', methods=['POST'])
-def add_face():
-    name = request.form['name']
-    file = request.files['file']
-    if file and name:
-        filename = f"{name}.jpg"
-        path = os.path.join(FACE_DIR, filename)
-        file.save(path)
-        face_embeddings[name] = np.array(DeepFace.represent(img_path=path, model_name='Facenet', enforce_detection=False)[0]['embedding'])
-        return redirect(url_for('manage_faces'))
-    return "Gagal upload", 400
-
 @app.route('/delete_person', methods=['POST'])
 def delete_person():
     name = request.form['name']
     folder_path = os.path.join(FACE_DIR, name)
 
     if os.path.exists(folder_path):
-        import shutil
         shutil.rmtree(folder_path)
         flash(f"Folder wajah {name} berhasil dihapus.", "success")
+        if name in face_embeddings:
+            del face_embeddings[name]  # hapus embedding juga
+            save_embeddings()
     else:
         flash(f"Folder wajah {name} tidak ditemukan.", "error")
 
     return redirect(url_for('manage'))
-
 
 @app.route('/add_face_cam', methods=['POST'])
 def add_face_cam():
@@ -279,43 +290,45 @@ def add_face_cam():
     if not name or not image_data:
         return "Data tidak lengkap", 400
     try:
-        # buat folder khusus per nama
         save_dir = os.path.join(FACE_DIR, name)
         os.makedirs(save_dir, exist_ok=True)
 
-        # hitung berapa file yang sudah ada
-        existing = len([f for f in os.listdir(save_dir) if f.endswith(('.jpg','.png','.jpeg'))])
+        existing = len([f for f in os.listdir(save_dir) if f.lower().endswith(('.jpg','.png','.jpeg'))])
         filename = f"{name}_{existing+1}.jpg"
 
-        # decode gambar
         img_str = re.sub('^data:image/.+;base64,', '', image_data)
         img_bytes = base64.b64decode(img_str)
         img = Image.open(BytesIO(img_bytes)).convert("RGB")
 
-        # convert ke OpenCV untuk crop wajah
         cv_img = np.array(img)
         cv_img = cv_img[:, :, ::-1].copy()  # RGB -> BGR
         face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
         faces = face_cascade.detectMultiScale(cv_img, scaleFactor=1.1, minNeighbors=5)
 
         if len(faces) > 0:
-            x, y, w, h = faces[0]  # ambil wajah pertama
+            x, y, w, h = faces[0]
             face_crop = cv_img[y:y+h, x:x+w]
-            face_crop = cv2.resize(face_crop, (160, 160))  # resize biar seragam
+            face_crop = cv2.resize(face_crop, (160, 160))
             cv2.imwrite(os.path.join(save_dir, filename), face_crop)
         else:
-            # fallback kalau wajah ga ketemu, simpan full frame
             img.save(os.path.join(save_dir, filename))
 
-        # update embedding (opsional, bisa skip kalau mau training belakangan)
-        # emb = DeepFace.represent(img_path=os.path.join(save_dir, filename), model_name='Facenet', enforce_detection=False)[0]['embedding']
-        # face_embeddings[f"{name}_{existing+1}"] = np.array(emb)
+        # update embeddings on-the-fly
+        emb = DeepFace.represent(
+            img_path=os.path.join(save_dir, filename), 
+            model_name='Facenet', enforce_detection=False
+        )[0]['embedding']
+
+        if name not in face_embeddings:
+            face_embeddings[name] = []
+        face_embeddings[name].append(np.array(emb))
+
+        save_embeddings()
 
         return jsonify({"success": True, "count": existing+1}), 200
     except Exception as e:
         print("Error add_face_cam:", e)
         return "Gagal menyimpan wajah", 500
-
 
 # ------------------ RUN ------------------
 if __name__ == "__main__":

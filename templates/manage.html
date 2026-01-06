@@ -5,17 +5,18 @@
 
 <h2>Daftar Wajah</h2>
 <ul>
-  {% for person in persons %}
-  <li style="margin-bottom:10px; display:flex; align-items:center;">
-    <span style="flex-grow:1;">{{ person }}</span>
-    <form method="POST" action="/delete_person" style="margin-left:10px;">
-      <input type="hidden" name="name" value="{{ person }}">
-      <button type="submit">Delete Folder</button>
-    </form>
-  </li>
-  {% endfor %}
-</ul>
-
+    {% for person in persons %}
+    <li style="margin-bottom:10px; display:flex; align-items:center;">
+      <span style="flex-grow:1;">{{ person }}</span>
+      <form method="POST" action="/delete_person" style="margin-left:10px;" 
+            onsubmit="return confirmDelete('{{ person }}')">
+        <input type="hidden" name="name" value="{{ person }}">
+        <button type="submit">Delete Folder</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>  
+  
 
 <hr>
 <h2>Tambah Wajah dengan Kamera</h2>
@@ -27,6 +28,11 @@
 {% endblock %}
 
 {% block script %}
+<script>
+    function confirmDelete(name) {
+        return confirm(`Apakah anda yakin ingin menghapus folder "${name}"?`);
+    }
+    </script>
 <script>
 let addCapStream;
 let isCapturing = false;

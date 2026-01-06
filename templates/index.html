@@ -2,14 +2,14 @@
 {% block title %}Presensi Wajah{% endblock %}
 
 {% block content %}
-<h1>Presensi Wajah</h1>
+<h1>Presensi Wajah (Real-Time)</h1>
 
 <div class="mb-3">
-  <label for="course">Pilih Mata Kuliah</label>
-  <select id="course">
-    <option value="Bahasa Mandarin">Bahasa Mandarin</option>
-    <option value="Sistem Multimedia">Sistem Multimedia</option>
-  </select>
+  <label>Kelas</label>
+  <input id="class" type="text" placeholder="Contoh: IF-3A">
+
+  <label style="margin-left:10px;">Mata Kuliah</label>
+  <input id="course" type="text" placeholder="Contoh: Sistem Multimedia">
 </div>
 
 <div class="mb-3">
@@ -42,13 +42,24 @@ document.getElementById('stopCam').addEventListener('click', () => {
 });
 
 document.getElementById("rekam-btn").addEventListener("click", function() {
+
     let course = document.getElementById("course").value;
+    let class_name = document.getElementById("class").value;
+
+    if(!course || !class_name){
+      showToast("Isi kelas dan mata kuliah dulu", false);
+      return;
+    }
 
     fetch("/rekam_presensi", { 
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({ course: course })
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({
+        course: course,
+        class: class_name
+      })
     })
+
     .then(resp => resp.json())
     .then(data => {
         if (data.success) {

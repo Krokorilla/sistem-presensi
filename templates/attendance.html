@@ -1,50 +1,117 @@
 {% extends "base.html" %}
 {% block title %}Daftar Kehadiran{% endblock %}
+
 {% block content %}
 <h1>Daftar Kehadiran</h1>
 
-<form method="POST" action="/attendance">
+<!-- FILTER -->
+<form method="POST" action="/attendance" style="margin-bottom:15px;">
+
   <label for="course">Mata Kuliah:</label>
   <select name="course" id="course">
     <option value="">-- Semua Mata Kuliah --</option>
     {% for c in courses %}
-    <option value="{{ c }}" {% if c == selected_course %}selected{% endif %}>{{ c }}</option>
+    <option value="{{ c }}" {% if c == selected_course %}selected{% endif %}>
+      {{ c }}
+    </option>
     {% endfor %}
   </select>
 
-  <label for="date">Tanggal:</label>
+  <label for="class" style="margin-left:10px;">Kelas:</label>
+  <select name="class" id="class">
+    <option value="">-- Semua Kelas --</option>
+    {% for cls in classes %}
+    <option value="{{ cls }}" {% if cls == selected_class %}selected{% endif %}>
+      {{ cls }}
+    </option>
+    {% endfor %}
+  </select>
+
+  <label for="date" style="margin-left:10px;">Tanggal:</label>
   <select name="date" id="date">
     <option value="">-- Semua Tanggal --</option>
     {% for d in dates %}
-    <option value="{{ d }}" {% if d == selected_date %}selected{% endif %}>{{ d }}</option>
+    <option value="{{ d }}" {% if d == selected_date %}selected{% endif %}>
+      {{ d }}
+    </option>
     {% endfor %}
   </select>
 
   <button type="submit">Filter</button>
 </form>
 
+
 {% if records %}
-<table border="1" cellpadding="5" cellspacing="0">
-  <tr>
-    <th>Nama</th>
-    <th>Mata Kuliah</th>
-    <th>Tanggal & Waktu</th>
-  </tr>
-  {% for r in records %}
-  <tr>
-    <td>{{ r[0] }}</td>
-    <td>{{ r[1] }}</td>
-    <td>{{ r[2] }}</td>
-  </tr>
-  {% endfor %}
+<table border="1" cellpadding="6" cellspacing="0" width="100%">
+  <thead>
+    <tr>
+      <th>Nama</th>
+      <th>Mata Kuliah</th>
+      <th>Kelas</th>
+      <th>Tanggal & Waktu</th>
+      <th>Aksi</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in records %}
+    <tr>
+      <td>{{ r[0] }}</td>
+      <td>{{ r[1] }}</td>
+      <td>{{ r[2] }}</td>
+      <td>{{ r[3] }}</td>
+      <td>
+        <button onclick="deleteAttendance(
+          '{{ r[0] }}',
+          '{{ r[1] }}',
+          '{{ r[2] }}',
+          '{{ r[3][:10] }}'
+        )" style="background:#f44336;color:white;border:none;padding:5px 8px;">
+          Hapus
+        </button>
+      </td>
+    </tr>    
+    {% endfor %}
+  </tbody>
 </table>
 
-{% if selected_course and selected_date %}
-<a href="/download/{{ selected_course }}/{{ selected_date }}">
-  <button>Download CSV</button>
+<!-- DOWNLOAD CSV -->
+{% if selected_course and selected_date and selected_class %}
+<br>
+<a href="/download/{{ selected_course }}/{{ selected_date }}/{{ selected_class }}">
+  <button style="margin-top:10px;">Download CSV</button>
 </a>
 {% endif %}
+
+
 {% else %}
 <p>Tidak ada data presensi.</p>
 {% endif %}
+{% endblock %}
+
+{% block script %}
+<script>
+  function deleteAttendance(name, course, class_name, date) {
+    if (!confirm(`Hapus kehadiran:
+  ${name}
+  ${course} - ${class_name}
+  ${date}`)) return;
+  
+    fetch("/delete_attendance", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: name,
+        course: course,
+        class: class_name,
+        date: date
+      })
+    })
+    .then(res => res.json())
+    .then(data => {
+      showToast(data.message, data.success);
+      if (data.success) setTimeout(()=>location.reload(),800);
+    })
+    .catch(()=>showToast("Gagal menghapus data",false));
+  }
+  </script>  
 {% endblock %}

@@ -1,80 +1,123 @@
 {% extends "base.html" %}
-{% block title %}Manage Wajah{% endblock %}
+{% block title %}Manage Dataset{% endblock %}
+
 {% block content %}
-<h1>Manage Wajah</h1>
-
-<h2>Daftar Wajah</h2>
-<ul>
-  {% for person in persons %}
-  <li style="margin-bottom:10px; display:flex; align-items:center;">
-    <span style="flex-grow:1;">{{ person }}</span>
-    <form method="POST" action="/delete_person" style="margin-left:10px;">
-      <input type="hidden" name="name" value="{{ person }}">
-      <button type="submit">Delete Folder</button>
-    </form>
-  </li>
-  {% endfor %}
-</ul>
-
+<h2>Manage Dataset Wajah</h2>
 
 <hr>
-<h2>Tambah Wajah dengan Kamera</h2>
-<input type="text" id="newName" placeholder="Nama">
-<button id="startCamAdd">Mulai Kamera</button>
-<button id="captureFace">Rekam Dataset (100 Foto)</button>
-<video id="camPreview" width="320" height="240" autoplay style="display:none; border:1px solid #000;"></video>
-<div id="progress"></div>
+
+<h3>Tambah Dataset Baru</h3>
+
+<label>Nama Orang</label>
+<input type="text" id="personName" placeholder="Masukkan Nama">
+
+<br><br>
+
+<button onclick="startCamera()">Mulai Kamera</button>
+<button onclick="capturePhoto()">Ambil Foto</button>
+
+<video id="video" width="360" autoplay style="display:none;border:1px solid #aaa;"></video>
+
+<br><br>
+
+<label>Upload Foto Dari Folder</label>
+<input type="file" id="fileInput" accept="image/*" multiple>
+
+<hr>
+
+<h3>Preview Dataset</h3>
+<div id="preview" style="display:flex;flex-wrap:wrap;"></div>
+
+<br>
+<button onclick="saveDataset()">Simpan Dataset</button>
+
+<hr>
+
+<h3>Daftar Orang</h3>
+<ul>
+{% for p in persons %}
+  <li>
+    {{ p }}
+    <form method="POST" action="/delete_person" style="display:inline">
+      <input type="hidden" name="name" value="{{ p }}">
+      <button type="submit">Hapus</button>
+    </form>
+  </li>
+{% endfor %}
+</ul>
+
 {% endblock %}
 
 {% block script %}
 <script>
-let addCapStream;
-let isCapturing = false;
+let video=null;
+let stream=null;
+let previewPhotos=[];
 
-document.getElementById('startCamAdd').addEventListener('click', async () => {
-    const video = document.getElementById('camPreview');
-    addCapStream = await navigator.mediaDevices.getUserMedia({ video: true });
-    video.srcObject = addCapStream;
-    video.style.display = 'block';
-});
+function startCamera(){
+  video=document.getElementById("video");
+  navigator.mediaDevices.getUserMedia({video:true}).then(s=>{
+    stream=s;
+    video.srcObject=s;
+    video.style.display="block";
+  });
+}
 
-document.getElementById('captureFace').addEventListener('click', async () => {
-    const video = document.getElementById('camPreview');
-    const name = document.getElementById('newName').value.trim();
-    const progress = document.getElementById('progress');
+function capturePhoto(){
+  if(!video) return alert("Kamera belum jalan");
 
-    if(!name) return showToast('Masukkan nama terlebih dahulu', false);
-    if(isCapturing) return;
+  const c=document.createElement("canvas");
+  c.width=video.videoWidth;
+  c.height=video.videoHeight;
+  c.getContext("2d").drawImage(video,0,0);
+  previewPhotos.push(c.toDataURL("image/jpeg"));
+  renderPreview();
+}
 
-    isCapturing = true;
-    progress.innerHTML = "Mulai merekam 100 foto...";
+document.getElementById("fileInput").onchange=e=>{
+  [...e.target.files].forEach(f=>{
+    const r=new FileReader();
+    r.onload=x=>{
+      previewPhotos.push(x.target.result);
+      renderPreview();
+    };
+    r.readAsDataURL(f);
+  });
+};
 
-    for(let i=1; i<=100; i++){
-        const canvas = document.createElement('canvas');
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const dataURL = canvas.toDataURL('image/jpeg');
+function removePhoto(i){
+  previewPhotos.splice(i,1);
+  renderPreview();
+}
 
-        await fetch('/add_face_cam', {
-            method: 'POST',
-            headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({ name: name, image: dataURL })
-        });
+function renderPreview(){
+  const div=document.getElementById("preview");
+  div.innerHTML="";
+  previewPhotos.forEach((p,i)=>{
+    div.innerHTML+=`
+      <div style="position:relative;margin:5px">
+        <img src="${p}" style="width:140px;border:1px solid #aaa">
+        <button onclick="removePhoto(${i})"
+          style="position:absolute;top:0;right:0">X</button>
+      </div>`;
+  });
+}
 
-        progress.innerHTML = `Menyimpan foto ${i}/100 ...`;
-        await new Promise(r => setTimeout(r, 200)); // delay 200ms biar kamera stabil
-    }
+function saveDataset(){
+  const name=document.getElementById("personName").value.trim();
+  if(!name) return alert("Masukkan nama");
+  if(previewPhotos.length===0) return alert("Belum ada foto");
 
-    showToast('Dataset 100 foto berhasil disimpan!', true);
-    progress.innerHTML = "";
-    isCapturing = false;
-
-    // matikan kamera
-    video.style.display = 'none';
-    addCapStream.getTracks().forEach(track => track.stop());
-    window.location.reload();
-});
+  fetch("/save_dataset",{
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body:JSON.stringify({ name:name, images:previewPhotos })
+  })
+  .then(r=>r.json())
+  .then(d=>{
+    alert(d.message);
+    if(d.success) location.reload();
+  });
+}
 </script>
 {% endblock %}

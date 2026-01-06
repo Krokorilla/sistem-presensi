@@ -1,0 +1,299 @@
+{% extends "base.html" %}
+
+{% block title %}
+Absensi Klasifikasi
+{% endblock %}
+
+{% block content %}
+
+<style>
+  #photos{
+    display:flex;
+    flex-wrap:wrap;
+    gap:12px;
+  }
+
+  #photos img{
+    width:300px;           /* 🔥 gambar lebih besar */
+    border:1px solid #4CAF50;
+    border-radius:10px;
+  }
+
+  .photo-wrap{
+    position:relative;
+  }
+
+  .remove-btn{
+    position:absolute;
+    top:5px;
+    right:5px;
+    background:red;
+    color:white;
+    border:none;
+    border-radius:50%;
+    width:28px;
+    height:28px;
+    cursor:pointer;
+  }
+</style>
+
+<h2>Absensi Menggunakan Foto (Klasifikasi)</h2>
+
+<div style="max-width: 850px;">
+
+  <!-- Input tanggal -->
+  <div style="margin-bottom:10px;">
+    <label>Tanggal</label><br>
+    <input type="date" id="date" style="width:100%; padding:8px;">
+  </div>
+
+  <!-- Input kelas -->
+  <div style="margin-bottom:10px;">
+    <label>Kelas</label><br>
+    <input type="text" id="class"
+          placeholder="Contoh: IF-3A"
+          style="width:100%; padding:8px;">
+  </div>
+
+  <!-- Input mata kuliah -->
+  <div style="margin-bottom:10px;">
+    <label>Mata Kuliah</label><br>
+    <input type="text" id="course"
+           placeholder="Contoh: Kecerdasan Buatan"
+           style="width:100%; padding:8px;">
+  </div>
+
+  <hr>
+
+  <!-- Pilih kamera -->
+  <div style="margin-bottom:10px;">
+    <label>Pilih Kamera</label><br>
+    <select id="cameraSelect" style="width:100%; padding:8px;"></select>
+  </div>
+
+  <!-- Preview kamera -->
+  <video id="video" autoplay playsinline
+         style="width:100%; max-width:520px; border:1px solid #ccc;"></video>
+
+  <br><br>
+
+  <button onclick="capturePhoto()">Ambil Foto</button>
+  <button onclick="previewFaces()">Preview</button>
+  <button onclick="saveAttendance()">Simpan Absensi</button>
+
+  <hr>
+
+  <!-- Upload dari folder -->
+  <label>Tambah Foto dari Folder</label><br>
+  <input type="file" id="fileInput" accept="image/*" multiple>
+
+  <!-- Foto -->
+  <h3>Foto</h3>
+  <div id="photos"></div>
+
+  <!-- Hasil -->
+  <h3>Hasil Klasifikasi</h3>
+  <table id="resultTable" border="1" cellpadding="8"
+         style="border-collapse:collapse; width:100%;">
+    <thead>
+      <tr>
+        <th>Nama</th>
+        <th>Confidence</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+let video = document.getElementById("video");
+let cameraSelect = document.getElementById("cameraSelect");
+let dateInput = document.getElementById("date");
+let courseInput = document.getElementById("course");
+let photos = [];
+let previewResults = [];
+let annotatedImages = [];
+let stream = null;
+
+/* ===============================
+   INIT CAMERA
+================================ */
+async function initCamera() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    video.srcObject = stream;
+
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    cameraSelect.innerHTML = "";
+
+    devices.forEach(d => {
+      if (d.kind === "videoinput") {
+        const opt = document.createElement("option");
+        opt.value = d.deviceId;
+        opt.text = d.label || "Camera";
+        cameraSelect.appendChild(opt);
+      }
+    });
+  } catch {
+    showToast("Tidak bisa mengakses kamera", false);
+  }
+}
+
+cameraSelect.onchange = async () => {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = await navigator.mediaDevices.getUserMedia({
+    video: { deviceId: { exact: cameraSelect.value } }
+  });
+  video.srcObject = stream;
+};
+
+/* ===============================
+   CAPTURE FOTO
+================================ */
+function capturePhoto() {
+  if (!video.videoWidth) {
+    showToast("Kamera belum siap", false);
+    return;
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext("2d").drawImage(video, 0, 0);
+
+  photos.push(canvas.toDataURL("image/jpeg"));
+  renderPhotos();
+}
+
+/* ===============================
+   UPLOAD DARI FOLDER
+================================ */
+document.getElementById("fileInput").onchange = e => {
+  [...e.target.files].forEach(file => {
+    const reader = new FileReader();
+    reader.onload = ev => {
+      photos.push(ev.target.result);
+      renderPhotos();
+    };
+    reader.readAsDataURL(file);
+  });
+};
+
+/* ===============================
+   RENDER FOTO (BESAR)
+================================ */
+function renderPhotos() {
+  const div = document.getElementById("photos");
+  div.innerHTML = "";
+  photos.forEach((p, i) => {
+    div.innerHTML += `
+      <div class="photo-wrap">
+        <img src="${p}">
+        <button class="remove-btn" onclick="removePhoto(${i})">×</button>
+      </div>`;
+  });
+}
+
+function removePhoto(i) {
+  photos.splice(i, 1);
+  renderPhotos();
+}
+
+/* ===============================
+   PREVIEW
+================================ */
+function previewFaces() {
+  let classInput = document.getElementById("class");
+
+  if (!dateInput.value || !courseInput.value || !classInput.value) {
+    showToast("Lengkapi tanggal, mata kuliah & kelas dulu", false);
+    return;
+  }
+
+  if (photos.length === 0) {
+    showToast("Ambil atau upload minimal 1 foto", false);
+    return;
+  }
+
+  fetch("/preview_faces", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ images: photos })
+  })
+  .then(res => res.json())
+  .then(data => {
+    previewResults = data.results;
+    annotatedImages = data.annotated_images;
+
+    const photoDiv = document.getElementById("photos");
+    photoDiv.innerHTML = "";
+    annotatedImages.forEach(img => {
+      photoDiv.innerHTML += `
+        <div class="photo-wrap">
+          <img src="${img}">
+        </div>`;
+    });
+
+    const tbody = document.querySelector("#resultTable tbody");
+    tbody.innerHTML = "";
+    previewResults.forEach(r => {
+      tbody.innerHTML += `
+        <tr>
+          <td>${r.name}</td>
+          <td>${r.confidence}</td>
+          <td>Preview</td>
+        </tr>`;
+    });
+  });
+}
+
+/* ===============================
+   SIMPAN ABSENSI
+================================ */
+function saveAttendance() {
+
+let classInput = document.getElementById("class");
+
+if (!dateInput.value || !courseInput.value || !classInput.value) {
+  showToast("Lengkapi tanggal, mata kuliah & kelas dulu", false);
+  return;
+}
+
+if (annotatedImages.length === 0) {
+  showToast("Lakukan preview terlebih dahulu", false);
+  return;
+}
+
+fetch("/save_attendance", {
+  method:"POST",
+  headers:{ "Content-Type":"application/json" },
+  body: JSON.stringify({
+    date: dateInput.value,
+    course: courseInput.value,
+    class: classInput.value,
+    results: previewResults,
+    images: annotatedImages
+  })
+})
+.then(res => res.json())
+.then(data => {
+  showToast(data.message, data.success);
+
+  const tbody = document.querySelector("#resultTable tbody");
+  [...tbody.rows].forEach(r => r.cells[2].innerText = "Tercatat");
+  photos = [];
+  annotatedImages = [];
+  renderPhotos();
+
+})
+.catch(() => showToast("Gagal menyimpan absensi", false));
+}
+
+
+window.onload = initCamera;
+</script>
+{% endblock %}
